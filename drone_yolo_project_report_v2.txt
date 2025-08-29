@@ -1,0 +1,51 @@
+Drone YOLO Project Report
+
+Project Overview
+
+The goal of this project is to build a drone-mounted real-time object detection system using YOLO models running on a Raspberry Pi / local machine setup. The system detects road hazards, cracks, and other objects while streaming and logging detections efficiently for further analysis.
+
+
+System Architecture
+
+The system consists of: - Drone video feed (via camera or RTMP) - Processing pipeline using OpenCV & FFmpeg - YOLO detection model (YOLOv5s, YOLOv5su, YOLO11 etc.)
+- Logging system (CSV output with timestamped detections) - Metrics expansion (FPS, counts, latency planned)
+
+
+Phase 1 Progress
+
+Phase 1 focused on: - Setting up environment (Termux, Conda, PyTorch, YOLOv5) - Running detection locally with test datasets - Overcoming firewall and UDP connection issues - Streaming setup via NGINX + FFmpeg - First test detections running successfully
+
+
+Phase 2 Progress
+
+Phase 2 improvements included: - Refactoring imports (quick_test_phase2 and phase3 logger) - Debugging logger with missing arguments (timestamp, fps, counts) - Exporting CSV outputs with timestamp, detection data - Running detection window with smooth performance, minimal lag - Stable detection pipeline achieved
+
+
+Issues Encountered and Solutions
+
+Key problems and fixes: 1. Termux dependency issues ? switched to Conda environment
+2. UDP/Firewall blocking ? allowed local ports, tested with FFmpeg 3. YOLO model
+
+mismatch ? fixed by specifying correct weights (yolov5su.pt) 4. Logger errors (timestamp, fps, counts) ? refactored Logger class 5. Detection freezing issues ? used threading for frame processing
+
+
+Current Status
+
+The system is now stable. Detection window opens with minimal lag, logging works with CSV output, and YOLO model runs properly. Warnings remain (autocast deprecation), but they do not affect functionality at this stage.
+
+
+Next Steps (Phase 3)
+
+Phase 3 will focus on: - Adding richer metrics (FPS, detection confidence distribution, latency analysis) - GPS synchronization for drone location + detection logs - System monitoring (CPU, GPU, memory usage) - Final integration for deployment on Raspberry Pi
++ drone hardware
+
+
+
+How to Run
+
+1. Place YOLO model weights (e.g., yolov5su.pt) in project folder 2. Run: python -m quick_test_phase2.phase2_harness 3. Detection window will open, logs will be stored in logs/ folder as CSV
+
+
+Folder Layout
+
+- main/quick_test_phase2 ? phase2_harness.py - main/quick_test_phase3 ? logger.py, future metrics expansion - logs/ ? CSV outputs with detection results
