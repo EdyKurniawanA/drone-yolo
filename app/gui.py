@@ -3,6 +3,8 @@ import time
 import json
 import threading
 import queue
+import os
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 import numpy as np
@@ -15,7 +17,7 @@ except Exception:  # optional at import-time
     serial = None
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -32,11 +34,94 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
 )
 
+# Import charts for performance visualization
+from PySide6.QtCharts import (
+    QChart, QChartView, QLineSeries, QValueAxis, QDateTimeAxis
+)
+
+# Import the existing logger and class counter
+import sys
+sys.path.append('..')
+from quick_test_phase3.logger import Logger
+from quick_test_phase3.class_counter import ClassCounter
+
 
 DEFAULT_RTMP = "rtmp://192.168.1.102/live"
 DEFAULT_COM_PORT = "COM8"
 DEFAULT_BAUD = "115200"
 DEFAULT_MODEL = "yolov5s.pt"
+
+
+class PerformanceChart(QWidget):
+    """Real-time performance chart widget"""
+    def __init__(self, title: str, y_max: float = 100.0, y_min: float = 0.0):
+        super().__init__()
+        self.y_max = y_max
+        self.y_min = y_min
+        
+        # Create chart
+        self.chart = QChart()
+        self.chart.setTitle(title)
+        self.chart.setAnimationOptions(QChart.SeriesAnimations)
+        self.chart.legend().hide()
+        
+        # Create series for data
+        self.series = QLineSeries()
+        self.series.setName(title)
+        self.chart.addSeries(self.series)
+        
+        # Setup axes
+        self.axis_x = QValueAxis()
+        self.axis_x.setRange(0, 60)  # Show last 60 data points
+        self.axis_x.setTitleText("Time (s)")
+        
+        self.axis_y = QValueAxis()
+        self.axis_y.setRange(y_min, y_max)
+        self.axis_y.setTitleText("Value")
+        
+        self.chart.addAxis(self.axis_x, Qt.AlignBottom)
+        self.chart.addAxis(self.axis_y, Qt.AlignLeft)
+        
+        self.series.attachAxis(self.axis_x)
+        self.series.attachAxis(self.axis_y)
+        
+        # Create chart view
+        self.chart_view = QChartView(self.chart)
+        self.chart_view.setRenderHint(QPainter.Antialiasing)
+        
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.chart_view)
+        self.setLayout(layout)
+        
+        # Data storage
+        self.data_points = []
+        self.max_points = 60
+        self.start_time = time.time()
+        
+    def update_value(self, value: float):
+        """Add new data point to chart"""
+        current_time = time.time() - self.start_time
+        
+        # Add new point
+        self.data_points.append((current_time, value))
+        
+        # Keep only last max_points
+        if len(self.data_points) > self.max_points:
+            self.data_points = self.data_points[-self.max_points:]
+        
+        # Update chart
+        self.series.clear()
+        for t, v in self.data_points:
+            self.series.append(t, v)
+        
+        # Auto-adjust Y axis if needed
+        if value > self.y_max * 0.9:
+            self.y_max = value * 1.1
+            self.axis_y.setRange(self.y_min, self.y_max)
+        elif value < self.y_min * 1.1:
+            self.y_min = max(0, value * 0.9)
+            self.axis_y.setRange(self.y_min, self.y_max)
 
 
 class HomeScreen(QWidget):
@@ -111,21 +196,44 @@ class MainScreen(QWidget):
         self.video_label.setFixedHeight(480)
         self.video_label.setStyleSheet("background-color: #202020; color: #CCCCCC; border: 1px solid #404040;")
 
-        # Right: metrics + class counts
-        self.metrics_list = QListWidget()
-        self.metrics_list.addItem(QListWidgetItem("FPS: --"))
-        self.metrics_list.addItem(QListWidgetItem("CPU: --"))
-        self.metrics_list.addItem(QListWidgetItem("Memory: --"))
-        self.metrics_list.addItem(QListWidgetItem("GPU: --"))
-
+        # Right: Performance charts and class counts
+        right_col = QVBoxLayout()
+        
+        # Performance charts section
+        charts_label = QLabel("Performance Metrics")
+        charts_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        charts_label.setAlignment(Qt.AlignCenter)
+        right_col.addWidget(charts_label)
+        
+        # Create performance charts
+        self.fps_chart = PerformanceChart("FPS", y_max=60.0, y_min=0.0)
+        self.cpu_chart = PerformanceChart("CPU %", y_max=100.0, y_min=0.0)
+        self.mem_chart = PerformanceChart("Memory %", y_max=100.0, y_min=0.0)
+        self.gpu_chart = PerformanceChart("GPU %", y_max=100.0, y_min=0.0)
+        
+        # Add charts to layout (make them smaller to fit)
+        charts_layout = QVBoxLayout()
+        charts_layout.addWidget(self.fps_chart)
+        charts_layout.addWidget(self.cpu_chart)
+        charts_layout.addWidget(self.mem_chart)
+        charts_layout.addWidget(self.gpu_chart)
+        
+        # Make charts smaller
+        for chart in [self.fps_chart, self.cpu_chart, self.mem_chart, self.gpu_chart]:
+            chart.setFixedHeight(120)
+        
+        right_col.addLayout(charts_layout)
+        
+        # Class counts section
+        class_label = QLabel("Class Counts")
+        class_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        class_label.setAlignment(Qt.AlignCenter)
+        right_col.addWidget(class_label)
+        
         self.class_list = QListWidget()
         self.class_list.addItem(QListWidgetItem("person: 0"))
-
-        right_col = QVBoxLayout()
-        right_col.addWidget(QLabel("Metrics"))
-        right_col.addWidget(self.metrics_list)
-        right_col.addWidget(QLabel("Class Counts"))
         right_col.addWidget(self.class_list)
+        
         right_col.addStretch(1)
 
         # Add stop button at bottom
@@ -139,19 +247,16 @@ class MainScreen(QWidget):
 
         self.setLayout(top)
 
-    # Placeholder API for updating UI later
     def update_metrics(self, fps: float = None, cpu: float = None, mem: float = None, gpu: float = None):
-        def set_row(idx: int, label: str, value):
-            if value is None:
-                return
-            item = self.metrics_list.item(idx)
-            if item is not None:
-                item.setText(f"{label}: {value}")
-
-        set_row(0, "FPS", f"{fps:.1f}" if fps is not None else None)
-        set_row(1, "CPU", f"{cpu:.1f}%" if cpu is not None else None)
-        set_row(2, "Memory", f"{mem:.1f}%" if mem is not None else None)
-        set_row(3, "GPU", f"{gpu:.1f}%" if gpu is not None else None)
+        """Update performance charts with new values"""
+        if fps is not None:
+            self.fps_chart.update_value(fps)
+        if cpu is not None:
+            self.cpu_chart.update_value(cpu)
+        if mem is not None:
+            self.mem_chart.update_value(mem)
+        if gpu is not None:
+            self.gpu_chart.update_value(gpu)
 
     def update_class_counts(self, counts: dict):
         self.class_list.clear()
@@ -167,7 +272,7 @@ class MainScreen(QWidget):
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         h, w, ch = frame_rgb.shape
         bytes_per_line = ch * w
-        from PySide6.QtGui import QImage, QPixmap
+        from PySide6.QtGui import QImage, QPixmap, QPainter
 
         qimg = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
         pix = QPixmap.fromImage(qimg).scaled(self.video_label.width(), self.video_label.height(), Qt.KeepAspectRatio, Qt.FastTransformation)
@@ -184,6 +289,7 @@ class PipelineManager:
         self.stop_event = threading.Event()
         self.frame_queue = queue.Queue(maxsize=5)
         self.result_queue = queue.Queue(maxsize=3)
+        self.log_queue = queue.Queue(maxsize=10)  # Queue for logging data
         
         # Thread-safe shared data
         self.latest_frame: Optional[np.ndarray] = None
@@ -195,6 +301,37 @@ class PipelineManager:
 
         self.latest_gps: Dict[str, Any] = {}
         self.threads: list[threading.Thread] = []
+        
+        # Initialize logger and class counter
+        self._setup_logging()
+        self.class_counter = ClassCounter(accumulate=True)
+
+    def _setup_logging(self):
+        """Setup CSV logging with timestamped filename"""
+        # Create logs directory if it doesn't exist
+        os.makedirs("logs", exist_ok=True)
+        
+        # Create timestamped filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"logs/drone_yolo_{timestamp}.csv"
+        
+        # Initialize logger with custom fields for drone detection
+        fieldnames = [
+            "timestamp",
+            "system_uptime", 
+            "frame_id",
+            "fps",
+            "counts",
+            "gps_utc",
+            "gps_lat",
+            "gps_lon", 
+            "gps_alt",
+            "detection_count",
+            "extra"
+        ]
+        
+        self.logger = Logger(log_filename, fieldnames)
+        self.frame_id = 0
 
     # ---------------- Capture ----------------
     def _capture_loop(self):
@@ -279,12 +416,19 @@ class PipelineManager:
                         cls_ids = detections[:, -1].cpu().numpy().astype(int)
                         labels = [names[int(c)] for c in cls_ids]
                         counts = dict(Counter(labels))
+                        
+                        # Update class counter for accumulation
+                        self.class_counter.update_from_yolo(results)
             except Exception:
                 counts = {}
 
             # Put results in queue for UI thread
             if not self.result_queue.full():
                 self.result_queue.put((annotated, counts))
+                
+            # Put logging data in queue
+            if not self.log_queue.full():
+                self.log_queue.put((counts, frame))
 
         del model
         if device == "cuda":
@@ -399,8 +543,53 @@ class PipelineManager:
             try:
                 self.cpu = psutil.cpu_percent(interval=0.5)
                 self.mem = psutil.virtual_memory().percent
+                
+                # Try to get GPU usage if available
+                try:
+                    if torch.cuda.is_available():
+                        self.gpu = torch.cuda.utilization()
+                    else:
+                        self.gpu = None
+                except Exception:
+                    self.gpu = None
+                    
             except Exception:
                 pass
+
+    # ---------------- Logging ----------------
+    def _logging_loop(self):
+        """Dedicated thread for CSV logging to prevent blocking"""
+        while not self.stop_event.is_set():
+            try:
+                counts, frame = self.log_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+                
+            # Get current GPS data
+            gps = dict(self.latest_gps)
+            
+            # Get accumulated class counts
+            accumulated_counts = self.class_counter.get_counts()
+            
+            # Log detection data
+            self.logger.log(
+                timestamp=datetime.now().isoformat(),
+                system_uptime=time.perf_counter(),
+                frame_id=self.frame_id,
+                fps=self.fps,
+                counts=counts,  # Current frame detections
+                gps_utc=gps.get("utc", ""),
+                gps_lat=gps.get("lat", ""),
+                gps_lon=gps.get("lon", ""),
+                gps_alt=gps.get("alt", ""),
+                detection_count=len(counts),  # Number of detections in this frame
+                extra={
+                    "accumulated_counts": accumulated_counts,
+                    "total_detections": sum(accumulated_counts.values())
+                }
+            )
+            
+            self.frame_id += 1
 
     # ---------------- Public API ----------------
     def start(self):
@@ -410,6 +599,7 @@ class PipelineManager:
             threading.Thread(target=self._inference_loop, name="inference", daemon=True),
             threading.Thread(target=self._gps_loop, name="gps", daemon=True),
             threading.Thread(target=self._metrics_loop, name="metrics", daemon=True),
+            threading.Thread(target=self._logging_loop, name="logging", daemon=True),  # New logging thread
         ]
         for t in self.threads:
             t.start()
@@ -421,6 +611,12 @@ class PipelineManager:
                 t.join(timeout=1.0)
             except Exception:
                 pass
+        
+        # Close logger
+        try:
+            self.logger.close()
+        except Exception:
+            pass
 
     def snapshot(self):
         # Get latest frame and counts from result queue
@@ -441,7 +637,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Drone YOLO")
-        self.resize(1100, 640)
+        self.resize(1400, 800)  # Made wider to accommodate charts
 
         self.stack = QStackedWidget()
         self.home = HomeScreen(self._start_clicked)
