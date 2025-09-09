@@ -52,3 +52,21 @@ class ClassCounter:
     def reset(self):
         """Manually reset counts (useful if accumulate=True)."""
         self.counter = Counter()
+
+    def update_from_labels(self, labels):
+        """Update the counter using a list of class label strings."""
+        if labels is None:
+            return
+        try:
+            if not self.accumulate:
+                self.counter = Counter()
+            # Ensure labels is a flat iterable of strings
+            label_list = []
+            for label in labels:
+                if isinstance(label, str):
+                    label_list.append(label)
+            if label_list:
+                self.counter.update(label_list)
+        except Exception:
+            # Fail silently to avoid affecting runtime
+            pass
